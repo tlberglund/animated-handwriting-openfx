@@ -1,0 +1,3 @@
+sudo cp -R ~/code/handwriting-openfx/build/HandwritingFX.ofx.bundle /Library/OFX/Plugins/ 
+sudo codesign --sign - /Library/OFX/Plugins/HandwritingFX.ofx.bundle/Contents/MacOS/HandwritingFX.ofx
+

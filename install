@@ -1,3 +1,5 @@
-sudo cp -R ~/code/handwriting-openfx/build/HandwritingFX.ofx.bundle /Library/OFX/Plugins/ 
+sudo rm ~/Library/Application\ Support/Blackmagic\ Design/DaVinci\ Resolve/OFXPluginCache*.xml
+sudo rm -rf /Library/OFX/Plugins/HandwritingFX.ofx.bundle
+sudo cp -R build/HandwritingFX.ofx.bundle /Library/OFX/Plugins/ 
 sudo codesign --sign - /Library/OFX/Plugins/HandwritingFX.ofx.bundle/Contents/MacOS/HandwritingFX.ofx
 

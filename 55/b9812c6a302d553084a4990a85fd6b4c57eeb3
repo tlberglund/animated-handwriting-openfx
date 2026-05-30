@@ -1,0 +1,31 @@
+src/glyph_loader.cpp
+  s_fdefaebd6e299e::t_79e9389646b96f 1-79
+src/renderer.h
+  s_fdefaebd6e299e::t_df4853892edca5 1-25
+src/glyph_model.h
+  s_fdefaebd6e299e::t_f6bc660162a3fc 1-33
+src/renderer.cpp
+  s_fdefaebd6e299e::t_e09c12823549ed 1-202
+src/plugin.cpp
+  s_fdefaebd6e299e::t_58ef757fcb4e24 6-7,11,257-259,350-362
+CMakeLists.txt
+  s_fdefaebd6e299e::t_5a4ecfcf4fa8cd 44-48
+src/glyph_loader.h
+  s_fdefaebd6e299e::t_ead35b39d58def 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "55b9812c6a302d553084a4990a85fd6b4c57eeb3",
+  "prompts": {},
+  "sessions": {
+    "s_fdefaebd6e299e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f9d7f04-19d4-4eaf-bf65-74896919019f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  }
+}

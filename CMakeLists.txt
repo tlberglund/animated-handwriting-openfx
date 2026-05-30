@@ -29,32 +29,14 @@ if(NOT openfx_POPULATED)
     FetchContent_Populate(openfx)
 endif()
 
-# FreeType, built from source. Disable optional dependencies to keep the build
-# minimal — we only need TrueType rasterisation.
-FetchContent_Declare(
-    freetype
-    GIT_REPOSITORY https://github.com/freetype/freetype.git
-    GIT_TAG        VER-2-13-2
-    GIT_SHALLOW    TRUE
-)
-set(FT_DISABLE_ZLIB     TRUE CACHE BOOL "" FORCE)
-set(FT_DISABLE_BZIP2    TRUE CACHE BOOL "" FORCE)
-set(FT_DISABLE_PNG      TRUE CACHE BOOL "" FORCE)
-set(FT_DISABLE_HARFBUZZ TRUE CACHE BOOL "" FORCE)
-set(FT_DISABLE_BROTLI   TRUE CACHE BOOL "" FORCE)
-# FreeType 2.13.2 declares cmake_minimum_required(VERSION 3.0) which CMake 4.x
-# rejects. This variable tells CMake to treat it as 3.5 and configure anyway.
-set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
-FetchContent_MakeAvailable(freetype)
-
-# Download Open Sans Regular (Apache 2.0) if not already present.
-set(OPENSANS_TTF "${CMAKE_SOURCE_DIR}/assets/OpenSans-Regular.ttf")
-if(NOT EXISTS "${OPENSANS_TTF}")
-    message(STATUS "Downloading OpenSans-Regular.ttf...")
-    file(MAKE_DIRECTORY "${CMAKE_SOURCE_DIR}/assets")
+# nlohmann/json — single header, downloaded once to the build tree.
+set(JSON_INCLUDE_DIR "${CMAKE_BINARY_DIR}/_deps/nlohmann_json")
+if(NOT EXISTS "${JSON_INCLUDE_DIR}/nlohmann/json.hpp")
+    message(STATUS "Downloading nlohmann/json v3.11.3...")
+    file(MAKE_DIRECTORY "${JSON_INCLUDE_DIR}/nlohmann")
     file(DOWNLOAD
-        "https://raw.githubusercontent.com/googlefonts/opensans/main/fonts/ttf/OpenSans-Regular.ttf"
-        "${OPENSANS_TTF}"
+        "https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp"
+        "${JSON_INCLUDE_DIR}/nlohmann/json.hpp"
         TLS_VERIFY ON
     )
 endif()
@@ -70,9 +52,8 @@ set_target_properties(HandwritingFX PROPERTIES
 
 target_include_directories(HandwritingFX PRIVATE
     "${openfx_SOURCE_DIR}/include"
+    "${JSON_INCLUDE_DIR}"
 )
-
-target_link_libraries(HandwritingFX PRIVATE freetype)
 
 # ---- Bundle packaging -------------------------------------------------------
 
@@ -89,8 +70,8 @@ add_custom_target(bundle
         "${CMAKE_SOURCE_DIR}/cmake/Info.plist"
         "${BUNDLE_DIR}/Contents/Info.plist"
     COMMAND ${CMAKE_COMMAND} -E copy
-        "${OPENSANS_TTF}"
-        "${BUNDLE_DIR}/Contents/Resources/OpenSans-Regular.ttf"
+        "${CMAKE_SOURCE_DIR}/assets/tim-hand.json"
+        "${BUNDLE_DIR}/Contents/Resources/tim-hand.json"
     COMMENT "Assembling HandwritingFX.ofx.bundle"
     VERBATIM
 )

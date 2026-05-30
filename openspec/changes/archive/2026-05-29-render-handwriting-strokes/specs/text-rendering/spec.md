@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Plugin produces a non-empty output frame
 The plugin SHALL implement `kOfxImageEffectActionRender` and write pixel data into the output image buffer. The output SHALL be a float RGBA image with premultiplied alpha.

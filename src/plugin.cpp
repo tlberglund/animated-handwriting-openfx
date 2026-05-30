@@ -136,6 +136,32 @@ static OfxStatus pluginMain(const char*          action,
         gPropSuite->propSetString(props, kOfxPropLabel,        0, "Enable Outline");
         gPropSuite->propSetInt(props,    kOfxParamPropDefault, 0, 1);
 
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "posX", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,           0, "Position X");
+        gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0, 0.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMin, 0, -8192.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMax, 0,  8192.0);
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "posY", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,           0, "Position Y");
+        gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0, 0.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMin, 0, -8192.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMax, 0,  8192.0);
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeChoice, "hAnchor", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,              0, "H Anchor");
+        gPropSuite->propSetInt(props,    kOfxParamPropDefault,       0, 1);
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  0, "Left");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  1, "Center");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  2, "Right");
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeChoice, "vAnchor", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,              0, "V Anchor");
+        gPropSuite->propSetInt(props,    kOfxParamPropDefault,       0, 1);
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  0, "Top");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  1, "Middle");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  2, "Bottom");
+
         return kOfxStatOK;
     }
 
@@ -147,6 +173,17 @@ static OfxStatus pluginMain(const char*          action,
         InstanceData* data = new InstanceData();
         data->glyphSet = loadGlyphSet(getBundledGlyphSetPath());
         gPropSuite->propSetPointer(effectProps, kOfxPropInstanceData, 0, (void*)data);
+
+        double projectSize[2] = {1920.0, 1080.0};
+        gPropSuite->propGetDoubleN(effectProps, kOfxImageEffectPropProjectSize, 2, projectSize);
+        OfxParamSetHandle paramSet = nullptr;
+        gEffectSuite->getParamSet(instance, &paramSet);
+        OfxParamHandle posXHandle = nullptr, posYHandle = nullptr;
+        gParamSuite->paramGetHandle(paramSet, "posX", &posXHandle, nullptr);
+        gParamSuite->paramGetHandle(paramSet, "posY", &posYHandle, nullptr);
+        if(posXHandle) gParamSuite->paramSetValue(posXHandle, projectSize[0] / 2.0);
+        if(posYHandle) gParamSuite->paramSetValue(posYHandle, projectSize[1] / 2.0);
+
         return kOfxStatOK;
     }
 
@@ -282,6 +319,8 @@ static OfxStatus pluginMain(const char*          action,
         double fillColor[4]    = {1.0, 1.0, 1.0, 1.0};
         double outlineColor[4] = {0.0, 0.0, 0.0, 1.0};
         int outlineEnabled = 1;
+        double posX = 0.0, posY = 0.0;
+        int hAnchor = 1, vAnchor = 1;
 
         gParamSuite->paramGetValueAtTime(getParam("text"),              renderTime, &textValue);
         gParamSuite->paramGetValueAtTime(getParam("textHeight"),        renderTime, &textHeight);
@@ -294,6 +333,10 @@ static OfxStatus pluginMain(const char*          action,
         gParamSuite->paramGetValueAtTime(getParam("outlineThickness"),  renderTime, &outlineThickness);
         gParamSuite->paramGetValueAtTime(getParam("outlineEnabled"),    renderTime, &outlineEnabled);
         gParamSuite->paramGetValueAtTime(getParam("captureSelections"), renderTime, &captureSelectionsStr);
+        gParamSuite->paramGetValueAtTime(getParam("posX"),              renderTime, &posX);
+        gParamSuite->paramGetValueAtTime(getParam("posY"),              renderTime, &posY);
+        gParamSuite->paramGetValueAtTime(getParam("hAnchor"),           renderTime, &hAnchor);
+        gParamSuite->paramGetValueAtTime(getParam("vAnchor"),           renderTime, &vAnchor);
 
         OfxImageClipHandle outputClip = nullptr;
         gEffectSuite->clipGetHandle(instance, kOfxImageEffectOutputClipName, &outputClip, nullptr);
@@ -358,8 +401,12 @@ static OfxStatus pluginMain(const char*          action,
         ctx.pMax = data->glyphSet.pMax;
         ctx.strokeThickness = strokeThickness;
 
+        float posX_px = (float)(posX * renderScale[0]);
+        float posY_px = (float)(posY * renderScale[1]);
+
         renderHandwriting(ctx, data->glyphSet, std::string(textValue), captureIdxVec,
-                          draw_time_ms, outlineThickness, fillColor, outlineColor, outlineEnabled);
+                          draw_time_ms, outlineThickness, fillColor, outlineColor, outlineEnabled,
+                          posX_px, posY_px, hAnchor, vAnchor);
 
         gEffectSuite->clipReleaseImage(outputImage);
         return kOfxStatOK;

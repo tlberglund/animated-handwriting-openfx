@@ -44,9 +44,28 @@ The plugin SHALL compute `capHeightPx = round(textHeight × frame_height × rend
 - **WHEN** the host renders at half resolution (render_scale = 0.5)
 - **THEN** capHeightPx is halved so the text occupies the same fractional area of the output
 
-### Requirement: Text origin is at the bottom-left of the frame
-The plugin SHALL position the text baseline at pixel coordinate (0, 0) in OFX image space (bottom-left origin). Stroke pixels that fall outside the output image bounds SHALL be clipped.
+### Requirement: Text origin is derived from position and anchor parameters
+The plugin SHALL compute the pixel-space rendering origin from `posX`, `posY`, `hAnchor`, and `vAnchor` rather than using a fixed bottom-left anchor. The baseline pixel Y coordinate (`baselineY`) and the pen-start pixel X coordinate (`originX`) SHALL be computed as follows:
 
-#### Scenario: Text appears at lower-left
-- **WHEN** the plugin renders with default settings and a non-empty `text` value
-- **THEN** stroke pixels are visible near the bottom-left corner of the output frame
+- `posX_px = posX × render_scale_x`
+- `posY_px = posY × render_scale_y`
+- `originX`: Left → `posX_px`; Center → `posX_px − totalWidth × capHeightPx / 2`; Right → `posX_px − totalWidth × capHeightPx`
+- `baselineY`: Top → `posY_px − capHeightPx`; Middle → `posY_px − capHeightPx / 2`; Bottom → `posY_px`
+
+where `totalWidth` is the sum of all resolved glyph `width` values (in cap-height units). Stroke pixels that fall outside the output image bounds SHALL be clipped.
+
+#### Scenario: Default settings center the text on the frame
+- **WHEN** `posX` = `projectWidth / 2` (e.g., 960 on a 1920-wide project), `posY` = `projectHeight / 2`, `hAnchor` = Center, `vAnchor` = Middle
+- **THEN** stroke pixels are concentrated near the center of the output frame
+
+#### Scenario: Bottom-left positioning
+- **WHEN** `posX` = 0, `posY` = 0, `hAnchor` = Left, `vAnchor` = Bottom
+- **THEN** the text baseline begins at the bottom-left corner of the frame
+
+#### Scenario: Right-aligned text
+- **WHEN** `hAnchor` = Right and `posX` = `projectWidth` (e.g., 1920 on a 1920-wide project)
+- **THEN** the right edge of the final glyph aligns to the right edge of the frame
+
+#### Scenario: Anchor offset scales with capHeightPx
+- **WHEN** `textHeight` is increased
+- **THEN** the anchor offset grows proportionally so the text remains visually centered on the position point

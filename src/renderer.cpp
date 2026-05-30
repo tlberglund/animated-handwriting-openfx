@@ -11,10 +11,11 @@
 static void splatSegment(const RenderContext& ctx,
                           float ax, float ay, float ap,
                           float bx, float by, float bp,
-                          float sigmaExtra, bool hardEdge, const double color[4])
+                          float sigmaExtra, bool hardEdge, const double color[4],
+                          float originX, float baselineY)
 {
-    float pax = ax * ctx.capHeightPx,  pay = (1.0f - ay) * ctx.capHeightPx;
-    float pbx = bx * ctx.capHeightPx,  pby = (1.0f - by) * ctx.capHeightPx;
+    float pax = originX + ax * ctx.capHeightPx,  pay = baselineY + (1.0f - ay) * ctx.capHeightPx;
+    float pbx = originX + bx * ctx.capHeightPx,  pby = baselineY + (1.0f - by) * ctx.capHeightPx;
 
     float sigma_a = ((float)ctx.strokeThickness * (ap / ctx.pMax) + sigmaExtra) * ctx.capHeightPx;
     float sigma_b = ((float)ctx.strokeThickness * (bp / ctx.pMax) + sigmaExtra) * ctx.capHeightPx;
@@ -73,7 +74,8 @@ static void splatSegment(const RenderContext& ctx,
 
 static void splatStrokes(const RenderContext& ctx,
                           const Capture* cap, float tLocal, float glyphPenX,
-                          float sigmaExtra, bool hardEdge, const double color[4])
+                          float sigmaExtra, bool hardEdge, const double color[4],
+                          float originX, float baselineY)
 {
     if(!cap) return;
     for(auto& stroke : cap->strokes) {
@@ -103,18 +105,18 @@ static void splatStrokes(const RenderContext& ctx,
             splatSegment(ctx,
                          glyphPenX + stroke[i].x,   stroke[i].y,   stroke[i].p,
                          glyphPenX + stroke[i+1].x, stroke[i+1].y, stroke[i+1].p,
-                         sigmaExtra, hardEdge, color);
+                         sigmaExtra, hardEdge, color, originX, baselineY);
         }
 
         if(hasPartial) {
             splatSegment(ctx,
                          glyphPenX + stroke[lastVisible].x, stroke[lastVisible].y, stroke[lastVisible].p,
                          glyphPenX + endX, endY, endP,
-                         sigmaExtra, hardEdge, color);
+                         sigmaExtra, hardEdge, color, originX, baselineY);
         } else if(lastVisible == 0) {
             float ax = glyphPenX + stroke[0].x;
             splatSegment(ctx, ax, stroke[0].y, stroke[0].p, ax, stroke[0].y, stroke[0].p,
-                         sigmaExtra, hardEdge, color);
+                         sigmaExtra, hardEdge, color, originX, baselineY);
         }
     }
 }
@@ -131,7 +133,9 @@ void renderHandwriting(const RenderContext& ctx,
                        double outlineThickness,
                        const double fillColor[4],
                        const double outlineColor[4],
-                       int outlineEnabled)
+                       int outlineEnabled,
+                       float posX_px, float posY_px,
+                       int hAnchor, int vAnchor)
 {
     // Resolve glyphs with ligature substitution
     struct ResolvedGlyph { const Capture* capture; float width; };
@@ -170,6 +174,24 @@ void renderHandwriting(const RenderContext& ctx,
         }
     }
 
+    // Compute total text width for anchor offset
+    float totalWidth = 0.0f;
+    for(auto& rg : resolved) totalWidth += rg.width;
+
+    // Compute rendering origin from position and anchor
+    float originX;
+    switch(hAnchor) {
+        case 0:  originX = posX_px; break;                                             // Left
+        case 2:  originX = posX_px - totalWidth * ctx.capHeightPx; break;             // Right
+        default: originX = posX_px - totalWidth * ctx.capHeightPx * 0.5f; break;      // Center
+    }
+    float baselineY;
+    switch(vAnchor) {
+        case 0:  baselineY = posY_px - ctx.capHeightPx; break;                        // Top
+        case 2:  baselineY = posY_px; break;                                           // Bottom
+        default: baselineY = posY_px - ctx.capHeightPx * 0.5f; break;                 // Middle
+    }
+
     // Build animation sequence: each glyph gets a pen-x position and a start time in ms
     struct GlyphSeq { const Capture* capture; float penX; float seqStart; };
     std::vector<GlyphSeq> sequence;
@@ -188,7 +210,8 @@ void renderHandwriting(const RenderContext& ctx,
             if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
             float tLocal = (float)(draw_time_ms - gs.seqStart);
             if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
-            splatStrokes(ctx, gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor);
+            splatStrokes(ctx, gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor,
+                         originX, baselineY);
         }
     }
 
@@ -197,6 +220,7 @@ void renderHandwriting(const RenderContext& ctx,
         if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
         float tLocal = (float)(draw_time_ms - gs.seqStart);
         if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
-        splatStrokes(ctx, gs.capture, tLocal, gs.penX, 0.0f, true, fillColor);
+        splatStrokes(ctx, gs.capture, tLocal, gs.penX, 0.0f, true, fillColor,
+                     originX, baselineY);
     }
 }

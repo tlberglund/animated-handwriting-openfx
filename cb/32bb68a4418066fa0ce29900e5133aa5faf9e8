@@ -1,0 +1,36 @@
+src/plugin.cpp
+  s_fdefaebd6e299e::t_45e2c1c1b79230 245-247
+  s_fdefaebd6e299e::t_49acd0824b91a2 394-405
+  s_fdefaebd6e299e::t_9edf0d6d772b12 515-518,520-521,523-533,541-558,596-613,615-619,621-623
+  s_fdefaebd6e299e::t_75c1bc513e9f05 519,522,535-540,559-562,564-567,570-584,614,620,624,630-635
+  s_fdefaebd6e299e::t_3ceface8bb4a5c 563,568-569
+  s_fdefaebd6e299e::t_3a86b31d6999d9 629,639-644
+openspec/specs/text-rendering/spec.md
+  s_fdefaebd6e299e::t_4689c6fe2c71b0 6-8,14-15,17-19,21-34,37,40-41,45,48,52
+openspec/specs/plugin-parameters/spec.md
+  s_fdefaebd6e299e::t_fe05c375ade95a 69-119
+  s_fdefaebd6e299e::t_6862b491c10ecb 34,40,42-46
+openspec/specs/handwriting-animation/spec.md
+  s_fdefaebd6e299e::t_811530c1da0837 1-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cb32bb68a4418066fa0ce29900e5133aa5faf9e8",
+  "prompts": {},
+  "humans": {
+    "h_1f5d0d6882e44b": {
+      "author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_fdefaebd6e299e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f9d7f04-19d4-4eaf-bf65-74896919019f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  }
+}

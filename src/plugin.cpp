@@ -3,49 +3,15 @@
 #include "ofxParam.h"
 #include "ofxProperty.h"
 
-#include <nlohmann/json.hpp>
+#include "glyph_loader.h"
+#include "renderer.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
-#include <fstream>
-#include <map>
 #include <string>
 #include <vector>
-
-// ---------------------------------------------------------------------------
-// Data structures
-// ---------------------------------------------------------------------------
-
-struct GlyphPoint { float x, y, t, p; };
-using Stroke = std::vector<GlyphPoint>;
-
-struct Capture {
-    std::string id;
-    float width;
-    std::vector<Stroke> strokes;
-    float duration;
-};
-
-struct Glyph {
-    std::string character;
-    std::vector<Capture> captures;
-};
-
-struct GlyphSet {
-    std::string name;
-    std::map<std::string, Glyph> glyphs;
-    std::vector<std::string> ligatureKeys;
-    float pMax;
-};
-
-struct InstanceData {
-    GlyphSet glyphSet;
-    std::string loadedPath;
-    std::vector<int> captureIndices;
-    std::string lastText;
-};
 
 // ---------------------------------------------------------------------------
 // Global suite pointers
@@ -55,82 +21,6 @@ static OfxHost*               gHost        = nullptr;
 static OfxPropertySuiteV1*    gPropSuite   = nullptr;
 static OfxImageEffectSuiteV1* gEffectSuite = nullptr;
 static OfxParameterSuiteV1*   gParamSuite  = nullptr;
-
-// ---------------------------------------------------------------------------
-// Resource helpers
-// ---------------------------------------------------------------------------
-
-static std::string getBundledGlyphSetPath()
-{
-    Dl_info info;
-    if(!dladdr((void*)getBundledGlyphSetPath, &info) || !info.dli_fname) return "";
-    std::string path = info.dli_fname;
-    size_t macosPos = path.rfind("/MacOS/");
-    if(macosPos == std::string::npos) return "";
-    return path.substr(0, macosPos) + "/Resources/tim-hand.json";
-}
-
-static GlyphSet loadGlyphSet(const std::string& path)
-{
-    GlyphSet result;
-    result.pMax = 1.0f;
-
-    std::ifstream file(path);
-    if(!file.is_open()) return result;
-
-    nlohmann::json j;
-    try { file >> j; }
-    catch(...) { return result; }
-
-    result.name = j.value("captureSetName", "");
-
-    if(!j.contains("glyphs") || !j["glyphs"].is_object()) return result;
-
-    float pMax = 0.0f;
-
-    for(auto& [key, glyphJson] : j["glyphs"].items()) {
-        if(!glyphJson.contains("captures")) continue;
-
-        Glyph glyph;
-        glyph.character = glyphJson.value("character", key);
-
-        for(auto& captureJson : glyphJson["captures"]) {
-            Capture capture;
-            capture.id    = captureJson.value("id", "");
-            capture.width = captureJson.value("width", 0.5f);
-
-            float maxT = 0.0f;
-            if(captureJson.contains("strokes")) {
-                for(auto& strokeJson : captureJson["strokes"]) {
-                    Stroke stroke;
-                    for(auto& ptJson : strokeJson) {
-                        GlyphPoint pt;
-                        pt.x = ptJson.value("x", 0.0f);
-                        pt.y = ptJson.value("y", 0.0f);
-                        pt.t = ptJson.value("t", 0.0f);
-                        pt.p = ptJson.value("p", 0.5f);
-                        if(pt.t > maxT) maxT = pt.t;
-                        if(pt.p > pMax) pMax = pt.p;
-                        stroke.push_back(pt);
-                    }
-                    capture.strokes.push_back(std::move(stroke));
-                }
-            }
-            capture.duration = maxT;
-            glyph.captures.push_back(std::move(capture));
-        }
-        result.glyphs[key] = std::move(glyph);
-    }
-
-    for(auto& [key, unused] : result.glyphs) {
-        if(key.size() > 1) result.ligatureKeys.push_back(key);
-    }
-    std::sort(result.ligatureKeys.begin(), result.ligatureKeys.end(),
-              [](const std::string& a, const std::string& b){ return a.size() > b.size(); });
-
-    result.pMax = (pMax > 0.0f) ? pMax : 1.0f;
-    return result;
-}
 
 // ---------------------------------------------------------------------------
 // setHost
@@ -364,9 +254,9 @@ static OfxStatus pluginMain(const char*          action,
 
         OfxPropertySetHandle effectProps = nullptr;
         gEffectSuite->getPropertySet(instance, &effectProps);
-        void* ptr = nullptr;
-        gPropSuite->propGetPointer(effectProps, kOfxPropInstanceData, 0, &ptr);
-        InstanceData* data = static_cast<InstanceData*>(ptr);
+        void* iptr = nullptr;
+        gPropSuite->propGetPointer(effectProps, kOfxPropInstanceData, 0, &iptr);
+        InstanceData* data = static_cast<InstanceData*>(iptr);
 
         double renderTime = 0.0;
         gPropSuite->propGetDouble(inArgs, kOfxPropTime, 0, &renderTime);
@@ -441,7 +331,6 @@ static OfxStatus pluginMain(const char*          action,
         if(capHeightPx < 1.0f) capHeightPx = 1.0f;
         double draw_time_ms = (renderTime / fps) * 1000.0 * speed;
 
-        // Parse captureSelections into a vector
         std::vector<int> captureIdxVec;
         if(captureSelectionsStr && captureSelectionsStr[0] != '\0') {
             std::string s = captureSelectionsStr;
@@ -458,191 +347,19 @@ static OfxStatus pluginMain(const char*          action,
             }
         }
 
-        // Resolve glyphs with ligature substitution
-        struct ResolvedGlyph { const Capture* capture; float width; };
-        std::vector<ResolvedGlyph> resolved;
-        std::string text = textValue;
-        size_t pos = 0;
-        int selIdx = 0;
+        RenderContext ctx;
+        ctx.pixelData = pixelData;
+        ctx.bounds[0] = bounds[0]; ctx.bounds[1] = bounds[1];
+        ctx.bounds[2] = bounds[2]; ctx.bounds[3] = bounds[3];
+        ctx.rowBytes = rowBytes;
+        ctx.width = width;
+        ctx.height = height;
+        ctx.capHeightPx = capHeightPx;
+        ctx.pMax = data->glyphSet.pMax;
+        ctx.strokeThickness = strokeThickness;
 
-        while(pos < text.size()) {
-            if(text[pos] == ' ') {
-                resolved.push_back({nullptr, 0.35f});
-                ++pos; continue;
-            }
-            bool found = false;
-            for(auto& key : data->glyphSet.ligatureKeys) {
-                if(pos + key.size() <= text.size() &&
-                   text.substr(pos, key.size()) == key) {
-                    auto it = data->glyphSet.glyphs.find(key);
-                    if(it != data->glyphSet.glyphs.end() && !it->second.captures.empty()) {
-                        int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
-                        idx = idx % (int)it->second.captures.size();
-                        resolved.push_back({&it->second.captures[idx],
-                                            it->second.captures[idx].width});
-                        pos += key.size(); ++selIdx; found = true; break;
-                    }
-                }
-            }
-            if(!found) {
-                auto it = data->glyphSet.glyphs.find(text.substr(pos, 1));
-                if(it != data->glyphSet.glyphs.end() && !it->second.captures.empty()) {
-                    int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
-                    idx = idx % (int)it->second.captures.size();
-                    resolved.push_back({&it->second.captures[idx],
-                                        it->second.captures[idx].width});
-                } else {
-                    resolved.push_back({nullptr, 0.35f});
-                }
-                ++pos; ++selIdx;
-            }
-        }
-
-        // Build animation sequence
-        struct GlyphSeq { const Capture* capture; float penX; float seqStart; };
-        std::vector<GlyphSeq> sequence;
-        float penX = 0.0f;
-        float seqCursor = 0.0f;
-        for(auto& rg : resolved) {
-            float dur = rg.capture ? rg.capture->duration : 0.0f;
-            sequence.push_back({rg.capture, penX, seqCursor});
-            penX      += rg.width;
-            seqCursor += dur;
-        }
-
-        float pMax = (data->glyphSet.pMax > 0.0f) ? data->glyphSet.pMax : 1.0f;
-
-        // Rasterize one stroke segment using perpendicular distance to the segment.
-        // Data y increases downward (screen coords); OFX y increases upward, so we flip:
-        //   pixY = (1 - y_data) * capHeightPx  →  baseline at y=0, cap-top at y=capHeightPx
-        // ax/bx are already in cap-height units including the pen-x offset.
-        // hardEdge=true: disc with 1px AA border (for outline); false: Gaussian falloff (for fill).
-        auto splatSegment = [&](float ax, float ay, float ap,
-                                 float bx, float by, float bp,
-                                 float sigmaExtra, bool hardEdge, const double color[4]) {
-            float pax = ax * capHeightPx,  pay = (1.0f - ay) * capHeightPx;
-            float pbx = bx * capHeightPx,  pby = (1.0f - by) * capHeightPx;
-
-            float sigma_a = ((float)strokeThickness * (ap / pMax) + sigmaExtra) * capHeightPx;
-            float sigma_b = ((float)strokeThickness * (bp / pMax) + sigmaExtra) * capHeightPx;
-            if(sigma_a < 0.5f) sigma_a = 0.5f;
-            if(sigma_b < 0.5f) sigma_b = 0.5f;
-            float max_sigma = std::max(sigma_a, sigma_b);
-
-            float sdx = pbx - pax, sdy = pby - pay;
-            float len2 = sdx * sdx + sdy * sdy;
-
-            // Tight bounding box: hard-edge only needs radius+1, Gaussian needs 3*sigma
-            float pad = hardEdge ? (max_sigma + 1.0f) : (3.0f * max_sigma);
-            int x0 = std::max(0,          (int)std::floor(std::min(pax, pbx) - pad) - bounds[0]);
-            int x1 = std::min(width  - 1, (int)std::ceil( std::max(pax, pbx) + pad) - bounds[0]);
-            int y0 = std::max(0,          (int)std::floor(std::min(pay, pby) - pad) - bounds[1]);
-            int y1 = std::min(height - 1, (int)std::ceil( std::max(pay, pby) + pad) - bounds[1]);
-
-            for(int ry = y0; ry <= y1; ++ry) {
-                float fy = (float)(ry + bounds[1]);
-                float* rowPtr = (float*)((char*)pixelData + ry * rowBytes);
-                for(int rx = x0; rx <= x1; ++rx) {
-                    float fx = (float)(rx + bounds[0]);
-
-                    // Clamp projection t onto [0,1] to get nearest segment point
-                    float t = 0.0f;
-                    if(len2 > 0.0f) {
-                        t = ((fx - pax) * sdx + (fy - pay) * sdy) / len2;
-                        if(t < 0.0f) t = 0.0f;
-                        else if(t > 1.0f) t = 1.0f;
-                    }
-
-                    float nx = pax + t * sdx, ny = pay + t * sdy;
-                    float dist2 = (fx - nx) * (fx - nx) + (fy - ny) * (fy - ny);
-                    float sigma = sigma_a + t * (sigma_b - sigma_a);
-
-                    float alpha;
-                    if(hardEdge) {
-                        float dist = sqrtf(dist2);
-                        alpha = std::max(0.0f, std::min(1.0f, sigma + 0.5f - dist));
-                    } else {
-                        alpha = expf(-dist2 / (2.0f * sigma * sigma));
-                    }
-                    if(alpha < 0.002f) continue;
-
-                    float* pixel = rowPtr + rx * 4;
-                    float srcA = alpha * (float)color[3];
-                    float dstA = pixel[3];
-                    float outA = srcA + dstA * (1.0f - srcA);
-                    if(outA > 0.0f) {
-                        pixel[0] = (srcA * (float)color[0] + dstA * pixel[0] * (1.0f - srcA)) / outA;
-                        pixel[1] = (srcA * (float)color[1] + dstA * pixel[1] * (1.0f - srcA)) / outA;
-                        pixel[2] = (srcA * (float)color[2] + dstA * pixel[2] * (1.0f - srcA)) / outA;
-                    }
-                    pixel[3] = outA;
-                }
-            }
-        };
-
-        auto splatStrokes = [&](const Capture* cap, float tLocal, float glyphPenX,
-                                 float sigmaExtra, bool hardEdge, const double color[4]) {
-            if(!cap) return;
-            for(auto& stroke : cap->strokes) {
-                if(stroke.empty()) continue;
-
-                int lastVisible = -1;
-                for(int i = 0; i < (int)stroke.size(); ++i) {
-                    if(stroke[i].t <= tLocal) lastVisible = i;
-                    else break;
-                }
-                if(lastVisible < 0) continue;
-
-                // Interpolated endpoint for any in-progress segment
-                float endX = stroke[lastVisible].x;
-                float endY = stroke[lastVisible].y;
-                float endP = stroke[lastVisible].p;
-                bool hasPartial = (lastVisible + 1 < (int)stroke.size());
-                if(hasPartial) {
-                    const auto& a = stroke[lastVisible];
-                    const auto& b = stroke[lastVisible + 1];
-                    float frac = (b.t > a.t) ? (tLocal - a.t) / (b.t - a.t) : 0.0f;
-                    endX = a.x + frac * (b.x - a.x);
-                    endY = a.y + frac * (b.y - a.y);
-                    endP = a.p + frac * (b.p - a.p);
-                }
-
-                // Draw segments between consecutive visible points
-                for(int i = 0; i < lastVisible; ++i) {
-                    splatSegment(glyphPenX + stroke[i].x,   stroke[i].y,   stroke[i].p,
-                                 glyphPenX + stroke[i+1].x, stroke[i+1].y, stroke[i+1].p,
-                                 sigmaExtra, hardEdge, color);
-                }
-
-                if(hasPartial) {
-                    splatSegment(glyphPenX + stroke[lastVisible].x, stroke[lastVisible].y, stroke[lastVisible].p,
-                                 glyphPenX + endX, endY, endP,
-                                 sigmaExtra, hardEdge, color);
-                } else if(lastVisible == 0) {
-                    float ax = glyphPenX + stroke[0].x;
-                    splatSegment(ax, stroke[0].y, stroke[0].p, ax, stroke[0].y, stroke[0].p,
-                                 sigmaExtra, hardEdge, color);
-                }
-            }
-        };
-
-        // Outline pass first: larger hard disc in outline color
-        if(outlineEnabled) {
-            for(auto& gs : sequence) {
-                if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
-                float tLocal = (float)(draw_time_ms - gs.seqStart);
-                if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
-                splatStrokes(gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor);
-            }
-        }
-
-        // Fill pass second: smaller hard disc composited on top, covering the outline interior
-        for(auto& gs : sequence) {
-            if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
-            float tLocal = (float)(draw_time_ms - gs.seqStart);
-            if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
-            splatStrokes(gs.capture, tLocal, gs.penX, 0.0f, true, fillColor);
-        }
+        renderHandwriting(ctx, data->glyphSet, std::string(textValue), captureIdxVec,
+                          draw_time_ms, outlineThickness, fillColor, outlineColor, outlineEnabled);
 
         gEffectSuite->clipReleaseImage(outputImage);
         return kOfxStatOK;

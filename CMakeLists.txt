@@ -41,7 +41,11 @@ if(NOT EXISTS "${JSON_INCLUDE_DIR}/nlohmann/json.hpp")
     )
 endif()
 
-add_library(HandwritingFX SHARED src/plugin.cpp)
+add_library(HandwritingFX SHARED
+    src/plugin.cpp
+    src/glyph_loader.cpp
+    src/renderer.cpp
+)
 
 # No lib prefix, no .dylib suffix — the bundle target renames the output to .ofx
 set_target_properties(HandwritingFX PROPERTIES

@@ -135,73 +135,115 @@ void renderHandwriting(const RenderContext& ctx,
                        const double outlineColor[4],
                        int outlineEnabled,
                        float posX_px, float posY_px,
-                       int hAnchor, int vAnchor)
+                       int hAnchor, int vAnchor,
+                       double lineSpacing, int textAlignment)
 {
-    // Resolve glyphs with ligature substitution
-    struct ResolvedGlyph { const Capture* capture; float width; };
-    std::vector<ResolvedGlyph> resolved;
-    size_t pos = 0;
-    int selIdx = 0;
-
-    while(pos < text.size()) {
-        if(text[pos] == ' ') {
-            resolved.push_back({nullptr, 0.35f});
-            ++pos; continue;
+    // Split text on newlines
+    std::vector<std::string> lines;
+    {
+        size_t start = 0;
+        while(true) {
+            size_t nl = text.find('\n', start);
+            if(nl == std::string::npos) {
+                lines.push_back(text.substr(start));
+                break;
+            }
+            lines.push_back(text.substr(start, nl - start));
+            start = nl + 1;
         }
-        bool found = false;
-        for(auto& key : glyphSet.ligatureKeys) {
-            if(pos + key.size() <= text.size() &&
-               text.substr(pos, key.size()) == key) {
-                auto it = glyphSet.glyphs.find(key);
+    }
+    int numLines = (int)lines.size();
+
+    // Resolve glyphs for each line; captureIdxVec is indexed globally across lines
+    struct ResolvedGlyph { const Capture* capture; float width; };
+    struct LineData { std::vector<ResolvedGlyph> glyphs; float lineWidth; };
+    std::vector<LineData> perLine;
+    perLine.reserve(numLines);
+
+    int selIdx = 0;
+    for(auto& line : lines) {
+        std::vector<ResolvedGlyph> resolved;
+        size_t pos = 0;
+        while(pos < line.size()) {
+            if(line[pos] == ' ') {
+                resolved.push_back({nullptr, 0.35f});
+                ++pos; continue;
+            }
+            bool found = false;
+            for(auto& key : glyphSet.ligatureKeys) {
+                if(pos + key.size() <= line.size() &&
+                   line.substr(pos, key.size()) == key) {
+                    auto it = glyphSet.glyphs.find(key);
+                    if(it != glyphSet.glyphs.end() && !it->second.captures.empty()) {
+                        int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
+                        idx = idx % (int)it->second.captures.size();
+                        resolved.push_back({&it->second.captures[idx], it->second.captures[idx].width});
+                        pos += key.size(); ++selIdx; found = true; break;
+                    }
+                }
+            }
+            if(!found) {
+                auto it = glyphSet.glyphs.find(line.substr(pos, 1));
                 if(it != glyphSet.glyphs.end() && !it->second.captures.empty()) {
                     int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
                     idx = idx % (int)it->second.captures.size();
                     resolved.push_back({&it->second.captures[idx], it->second.captures[idx].width});
-                    pos += key.size(); ++selIdx; found = true; break;
+                } else {
+                    resolved.push_back({nullptr, 0.35f});
                 }
+                ++pos; ++selIdx;
             }
         }
-        if(!found) {
-            auto it = glyphSet.glyphs.find(text.substr(pos, 1));
-            if(it != glyphSet.glyphs.end() && !it->second.captures.empty()) {
-                int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
-                idx = idx % (int)it->second.captures.size();
-                resolved.push_back({&it->second.captures[idx], it->second.captures[idx].width});
-            } else {
-                resolved.push_back({nullptr, 0.35f});
-            }
-            ++pos; ++selIdx;
-        }
+        float lineWidth = 0.0f;
+        for(auto& rg : resolved) lineWidth += rg.width;
+        perLine.push_back({std::move(resolved), lineWidth});
     }
 
-    // Compute total text width for anchor offset
-    float totalWidth = 0.0f;
-    for(auto& rg : resolved) totalWidth += rg.width;
+    // blockWidth = max per-line width; used by hAnchor and textAlignment
+    float blockWidth = 0.0f;
+    for(auto& ld : perLine) blockWidth = std::max(blockWidth, ld.lineWidth);
 
-    // Compute rendering origin from position and anchor
-    float originX;
+    // Block-level horizontal origin (hAnchor uses blockWidth)
+    float originX_block;
     switch(hAnchor) {
-        case 0:  originX = posX_px; break;                                             // Left
-        case 2:  originX = posX_px - totalWidth * ctx.capHeightPx; break;             // Right
-        default: originX = posX_px - totalWidth * ctx.capHeightPx * 0.5f; break;      // Center
-    }
-    float baselineY;
-    switch(vAnchor) {
-        case 0:  baselineY = posY_px - ctx.capHeightPx; break;                        // Top
-        case 2:  baselineY = posY_px; break;                                           // Bottom
-        default: baselineY = posY_px - ctx.capHeightPx * 0.5f; break;                 // Middle
+        case 0:  originX_block = posX_px; break;                                             // Left
+        case 2:  originX_block = posX_px - blockWidth * ctx.capHeightPx; break;             // Right
+        default: originX_block = posX_px - blockWidth * ctx.capHeightPx * 0.5f; break;      // Center
     }
 
-    // Build animation sequence: each glyph gets a pen-x position and a start time in ms
-    struct GlyphSeq { const Capture* capture; float penX; float seqStart; };
+    // First baseline Y (vAnchor operates on the full block height)
+    float lsf = (float)lineSpacing;
+    float firstBaselineY;
+    switch(vAnchor) {
+        case 0:  firstBaselineY = posY_px - ctx.capHeightPx; break;                                              // Top
+        case 2:  firstBaselineY = posY_px + (numLines - 1) * lsf * ctx.capHeightPx; break;                     // Bottom
+        default: firstBaselineY = posY_px - ctx.capHeightPx * 0.5f                                              // Middle
+                                  + (numLines - 1) * lsf * ctx.capHeightPx * 0.5f; break;
+    }
+
+    // Build animation sequence with per-glyph origin (varies by line)
+    struct GlyphSeq { const Capture* capture; float penX; float seqStart; float originX; float baselineY; };
     std::vector<GlyphSeq> sequence;
-    float penX = 0.0f;
     float seqCursor = 0.0f;
-    for(auto& rg : resolved) {
-        float dur = rg.capture ? rg.capture->duration : 0.0f;
-        sequence.push_back({rg.capture, penX, seqCursor});
-        penX      += rg.width;
-        seqCursor += dur;
+
+    for(int li = 0; li < numLines; ++li) {
+        float lineBaselineY = firstBaselineY - li * lsf * ctx.capHeightPx;
+        float lineWidth = perLine[li].lineWidth;
+
+        float lineOriginX;
+        switch(textAlignment) {
+            case 1:  lineOriginX = originX_block + (blockWidth - lineWidth) * ctx.capHeightPx * 0.5f; break; // Center
+            case 2:  lineOriginX = originX_block + (blockWidth - lineWidth) * ctx.capHeightPx; break;        // Right
+            default: lineOriginX = originX_block; break;                                                      // Left
+        }
+
+        float penX = 0.0f;
+        for(auto& rg : perLine[li].glyphs) {
+            float dur = rg.capture ? rg.capture->duration : 0.0f;
+            sequence.push_back({rg.capture, penX, seqCursor, lineOriginX, lineBaselineY});
+            penX      += rg.width;
+            seqCursor += dur;
+        }
     }
 
     // Outline pass: large hard disc drawn first
@@ -211,16 +253,16 @@ void renderHandwriting(const RenderContext& ctx,
             float tLocal = (float)(draw_time_ms - gs.seqStart);
             if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
             splatStrokes(ctx, gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor,
-                         originX, baselineY);
+                         gs.originX, gs.baselineY);
         }
     }
 
-    // Fill pass: smaller hard disc composited on top, geometrically covering the outline interior
+    // Fill pass: smaller hard disc composited on top
     for(auto& gs : sequence) {
         if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
         float tLocal = (float)(draw_time_ms - gs.seqStart);
         if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
         splatStrokes(ctx, gs.capture, tLocal, gs.penX, 0.0f, true, fillColor,
-                     originX, baselineY);
+                     gs.originX, gs.baselineY);
     }
 }

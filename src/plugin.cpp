@@ -14,6 +14,24 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static std::string expandEscapes(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for(size_t i = 0; i < s.size(); ++i) {
+        if(s[i] == '\\' && i + 1 < s.size() && s[i+1] == 'n') {
+            out += '\n'; ++i;
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Global suite pointers
 // ---------------------------------------------------------------------------
 
@@ -162,6 +180,21 @@ static OfxStatus pluginMain(const char*          action,
         gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  1, "Middle");
         gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  2, "Bottom");
 
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "lineSpacing", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,           0, "Line Spacing");
+        gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0, 1.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropMin,        0, -1.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropMax,        0,  5.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMin, 0, -1.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMax, 0,  5.0);
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeChoice, "textAlignment", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,              0, "Text Alignment");
+        gPropSuite->propSetInt(props,    kOfxParamPropDefault,       0, 0);
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  0, "Left");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  1, "Center");
+        gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  2, "Right");
+
         return kOfxStatOK;
     }
 
@@ -223,11 +256,12 @@ static OfxStatus pluginMain(const char*          action,
             gParamSuite->paramGetHandle(paramSet, "text", &textParam, nullptr);
             char* textValue = nullptr;
             gParamSuite->paramGetValue(textParam, &textValue);
-            std::string text = textValue ? textValue : "";
+            std::string text = expandEscapes(textValue ? textValue : "");
 
             data->captureIndices.clear();
             size_t pos = 0;
             while(pos < text.size()) {
+                if(text[pos] == '\n') { ++pos; continue; }
                 if(text[pos] == ' ') {
                     data->captureIndices.push_back(0);
                     ++pos; continue;
@@ -321,6 +355,8 @@ static OfxStatus pluginMain(const char*          action,
         int outlineEnabled = 1;
         double posX = 0.0, posY = 0.0;
         int hAnchor = 1, vAnchor = 1;
+        double lineSpacing = 1.0;
+        int textAlignment = 0;
 
         gParamSuite->paramGetValueAtTime(getParam("text"),              renderTime, &textValue);
         gParamSuite->paramGetValueAtTime(getParam("textHeight"),        renderTime, &textHeight);
@@ -337,6 +373,8 @@ static OfxStatus pluginMain(const char*          action,
         gParamSuite->paramGetValueAtTime(getParam("posY"),              renderTime, &posY);
         gParamSuite->paramGetValueAtTime(getParam("hAnchor"),           renderTime, &hAnchor);
         gParamSuite->paramGetValueAtTime(getParam("vAnchor"),           renderTime, &vAnchor);
+        gParamSuite->paramGetValueAtTime(getParam("lineSpacing"),       renderTime, &lineSpacing);
+        gParamSuite->paramGetValueAtTime(getParam("textAlignment"),     renderTime, &textAlignment);
 
         OfxImageClipHandle outputClip = nullptr;
         gEffectSuite->clipGetHandle(instance, kOfxImageEffectOutputClipName, &outputClip, nullptr);
@@ -404,9 +442,9 @@ static OfxStatus pluginMain(const char*          action,
         float posX_px = (float)(posX * renderScale[0]);
         float posY_px = (float)(posY * renderScale[1]);
 
-        renderHandwriting(ctx, data->glyphSet, std::string(textValue), captureIdxVec,
+        renderHandwriting(ctx, data->glyphSet, expandEscapes(textValue ? textValue : ""), captureIdxVec,
                           draw_time_ms, outlineThickness, fillColor, outlineColor, outlineEnabled,
-                          posX_px, posY_px, hAnchor, vAnchor);
+                          posX_px, posY_px, hAnchor, vAnchor, lineSpacing, textAlignment);
 
         gEffectSuite->clipReleaseImage(outputImage);
         return kOfxStatOK;

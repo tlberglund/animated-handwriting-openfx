@@ -12,10 +12,24 @@ static void splatSegment(const RenderContext& ctx,
                           float ax, float ay, float ap,
                           float bx, float by, float bp,
                           float sigmaExtra, bool hardEdge, const double color[4],
-                          float originX, float baselineY)
+                          float originX, float baselineY,
+                          float rotSin, float rotCos,
+                          float rotCenterX, float rotCenterY)
 {
     float pax = originX + ax * ctx.capHeightPx,  pay = baselineY + (1.0f - ay) * ctx.capHeightPx;
     float pbx = originX + bx * ctx.capHeightPx,  pby = baselineY + (1.0f - by) * ctx.capHeightPx;
+
+    // Rotate pixel coords around (rotCenterX, rotCenterY)
+    {
+        float dx = pax - rotCenterX, dy = pay - rotCenterY;
+        pax = rotCenterX + dx * rotCos - dy * rotSin;
+        pay = rotCenterY + dx * rotSin + dy * rotCos;
+    }
+    {
+        float dx = pbx - rotCenterX, dy = pby - rotCenterY;
+        pbx = rotCenterX + dx * rotCos - dy * rotSin;
+        pby = rotCenterY + dx * rotSin + dy * rotCos;
+    }
 
     float sigma_a = ((float)ctx.strokeThickness * (ap / ctx.pMax) + sigmaExtra) * ctx.capHeightPx;
     float sigma_b = ((float)ctx.strokeThickness * (bp / ctx.pMax) + sigmaExtra) * ctx.capHeightPx;
@@ -75,7 +89,9 @@ static void splatSegment(const RenderContext& ctx,
 static void splatStrokes(const RenderContext& ctx,
                           const Capture* cap, float tLocal, float glyphPenX,
                           float sigmaExtra, bool hardEdge, const double color[4],
-                          float originX, float baselineY)
+                          float originX, float baselineY,
+                          float rotSin, float rotCos,
+                          float rotCenterX, float rotCenterY)
 {
     if(!cap) return;
     for(auto& stroke : cap->strokes) {
@@ -105,18 +121,21 @@ static void splatStrokes(const RenderContext& ctx,
             splatSegment(ctx,
                          glyphPenX + stroke[i].x,   stroke[i].y,   stroke[i].p,
                          glyphPenX + stroke[i+1].x, stroke[i+1].y, stroke[i+1].p,
-                         sigmaExtra, hardEdge, color, originX, baselineY);
+                         sigmaExtra, hardEdge, color, originX, baselineY,
+                         rotSin, rotCos, rotCenterX, rotCenterY);
         }
 
         if(hasPartial) {
             splatSegment(ctx,
                          glyphPenX + stroke[lastVisible].x, stroke[lastVisible].y, stroke[lastVisible].p,
                          glyphPenX + endX, endY, endP,
-                         sigmaExtra, hardEdge, color, originX, baselineY);
+                         sigmaExtra, hardEdge, color, originX, baselineY,
+                         rotSin, rotCos, rotCenterX, rotCenterY);
         } else if(lastVisible == 0) {
             float ax = glyphPenX + stroke[0].x;
             splatSegment(ctx, ax, stroke[0].y, stroke[0].p, ax, stroke[0].y, stroke[0].p,
-                         sigmaExtra, hardEdge, color, originX, baselineY);
+                         sigmaExtra, hardEdge, color, originX, baselineY,
+                         rotSin, rotCos, rotCenterX, rotCenterY);
         }
     }
 }
@@ -136,8 +155,14 @@ void renderHandwriting(const RenderContext& ctx,
                        int outlineEnabled,
                        float posX_px, float posY_px,
                        int hAnchor, int vAnchor,
-                       double lineSpacing, int textAlignment)
+                       double lineSpacing, int textAlignment,
+                       double tracking, double rotation)
 {
+    // Precompute rotation
+    float rotRad = (float)rotation * (float)M_PI / 180.0f;
+    float rotSin = sinf(rotRad);
+    float rotCos = cosf(rotRad);
+
     // Split text on newlines
     std::vector<std::string> lines;
     {
@@ -194,8 +219,9 @@ void renderHandwriting(const RenderContext& ctx,
                 ++pos; ++selIdx;
             }
         }
+        // Compute lineWidth using tracking-adjusted advances
         float lineWidth = 0.0f;
-        for(auto& rg : resolved) lineWidth += rg.width;
+        for(auto& rg : resolved) lineWidth += rg.width + (float)tracking;
         perLine.push_back({std::move(resolved), lineWidth});
     }
 
@@ -241,7 +267,7 @@ void renderHandwriting(const RenderContext& ctx,
         for(auto& rg : perLine[li].glyphs) {
             float dur = rg.capture ? rg.capture->duration : 0.0f;
             sequence.push_back({rg.capture, penX, seqCursor, lineOriginX, lineBaselineY});
-            penX      += rg.width;
+            penX      += rg.width + (float)tracking;
             seqCursor += dur;
         }
     }
@@ -253,7 +279,8 @@ void renderHandwriting(const RenderContext& ctx,
             float tLocal = (float)(draw_time_ms - gs.seqStart);
             if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
             splatStrokes(ctx, gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor,
-                         gs.originX, gs.baselineY);
+                         gs.originX, gs.baselineY,
+                         rotSin, rotCos, posX_px, posY_px);
         }
     }
 
@@ -263,6 +290,7 @@ void renderHandwriting(const RenderContext& ctx,
         float tLocal = (float)(draw_time_ms - gs.seqStart);
         if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
         splatStrokes(ctx, gs.capture, tLocal, gs.penX, 0.0f, true, fillColor,
-                     gs.originX, gs.baselineY);
+                     gs.originX, gs.baselineY,
+                     rotSin, rotCos, posX_px, posY_px);
     }
 }

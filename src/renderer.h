@@ -25,4 +25,5 @@ void renderHandwriting(const RenderContext& ctx,
                        int outlineEnabled,
                        float posX_px, float posY_px,
                        int hAnchor, int vAnchor,
-                       double lineSpacing, int textAlignment);
+                       double lineSpacing, int textAlignment,
+                       double tracking, double rotation);

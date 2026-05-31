@@ -94,6 +94,10 @@ static OfxStatus pluginMain(const char*          action,
         gPropSuite->propSetString(props, kOfxPropLabel,           0, "Text");
         gPropSuite->propSetString(props, kOfxParamPropStringMode, 0, kOfxParamStringIsMultiLine);
 
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeBoolean, "animate", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,        0, "Animate");
+        gPropSuite->propSetInt(props,    kOfxParamPropDefault, 0, 1);
+
         gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "textHeight", &props);
         gPropSuite->propSetString(props, kOfxPropLabel,           0, "Text Height");
         gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0, 0.1);
@@ -194,6 +198,22 @@ static OfxStatus pluginMain(const char*          action,
         gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  0, "Left");
         gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  1, "Center");
         gPropSuite->propSetString(props, kOfxParamPropChoiceOption,  2, "Right");
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "tracking", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,           0, "Tracking");
+        gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0, 0.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropMin,        0, -0.5);
+        gPropSuite->propSetDouble(props, kOfxParamPropMax,        0,  2.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMin, 0, -0.5);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMax, 0,  2.0);
+
+        gParamSuite->paramDefine(paramSet, kOfxParamTypeDouble, "rotation", &props);
+        gPropSuite->propSetString(props, kOfxPropLabel,           0, "Rotation");
+        gPropSuite->propSetDouble(props, kOfxParamPropDefault,    0,    0.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropMin,        0, -360.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropMax,        0,  360.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMin, 0, -360.0);
+        gPropSuite->propSetDouble(props, kOfxParamPropDisplayMax, 0,  360.0);
 
         return kOfxStatOK;
     }
@@ -357,6 +377,9 @@ static OfxStatus pluginMain(const char*          action,
         int hAnchor = 1, vAnchor = 1;
         double lineSpacing = 1.0;
         int textAlignment = 0;
+        int animate = 1;
+        double tracking = 0.0;
+        double rotation = 0.0;
 
         gParamSuite->paramGetValueAtTime(getParam("text"),              renderTime, &textValue);
         gParamSuite->paramGetValueAtTime(getParam("textHeight"),        renderTime, &textHeight);
@@ -375,6 +398,9 @@ static OfxStatus pluginMain(const char*          action,
         gParamSuite->paramGetValueAtTime(getParam("vAnchor"),           renderTime, &vAnchor);
         gParamSuite->paramGetValueAtTime(getParam("lineSpacing"),       renderTime, &lineSpacing);
         gParamSuite->paramGetValueAtTime(getParam("textAlignment"),     renderTime, &textAlignment);
+        gParamSuite->paramGetValueAtTime(getParam("animate"),           renderTime, &animate);
+        gParamSuite->paramGetValueAtTime(getParam("tracking"),          renderTime, &tracking);
+        gParamSuite->paramGetValueAtTime(getParam("rotation"),          renderTime, &rotation);
 
         OfxImageClipHandle outputClip = nullptr;
         gEffectSuite->clipGetHandle(instance, kOfxImageEffectOutputClipName, &outputClip, nullptr);
@@ -442,9 +468,12 @@ static OfxStatus pluginMain(const char*          action,
         float posX_px = (float)(posX * renderScale[0]);
         float posY_px = (float)(posY * renderScale[1]);
 
+        if(!animate) draw_time_ms = 1e12;
+
         renderHandwriting(ctx, data->glyphSet, expandEscapes(textValue ? textValue : ""), captureIdxVec,
                           draw_time_ms, outlineThickness, fillColor, outlineColor, outlineEnabled,
-                          posX_px, posY_px, hAnchor, vAnchor, lineSpacing, textAlignment);
+                          posX_px, posY_px, hAnchor, vAnchor, lineSpacing, textAlignment,
+                          tracking, rotation);
 
         gEffectSuite->clipReleaseImage(outputImage);
         return kOfxStatOK;

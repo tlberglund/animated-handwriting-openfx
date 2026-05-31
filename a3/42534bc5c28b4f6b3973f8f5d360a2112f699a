@@ -1,0 +1,37 @@
+src/plugin.cpp
+  s_fdefaebd6e299e::t_61310b1ae925b2 471-472,475-476
+  s_fdefaebd6e299e::t_515aa73cd1da57 213-216
+  s_fdefaebd6e299e::t_cf8b34f405a7a8 97-100
+  s_fdefaebd6e299e::t_9eb828265c5e94 380-382
+  s_fdefaebd6e299e::t_f69c3ce7b69970 202-212,217
+  s_fdefaebd6e299e::t_faf0fa2cab20ee 401-403
+src/renderer.cpp
+  s_fdefaebd6e299e::t_4cb0544f916099 15-17,22-33,92-94,124-125,132-133,137-138,158-159,161-165,222,224,270,282-283,293-294
+src/renderer.h
+  s_fdefaebd6e299e::t_9487a29c488287 28-29
+openspec/specs/plugin-parameters/spec.md
+  s_fdefaebd6e299e::t_3675343671561b 192-248
+openspec/specs/text-rendering/spec.md
+  s_fdefaebd6e299e::t_d702a9ee4a8195 118-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a342534bc5c28b4f6b3973f8f5d360a2112f699a",
+  "prompts": {},
+  "humans": {
+    "h_1f5d0d6882e44b": {
+      "author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_fdefaebd6e299e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f9d7f04-19d4-4eaf-bf65-74896919019f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  }
+}

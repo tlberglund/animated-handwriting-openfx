@@ -14,6 +14,18 @@ struct RenderContext {
     double strokeThickness;
 };
 
+void renderDiagram(const RenderContext& ctx,
+                   const DiagramData&   diagram,
+                   double draw_time_ms,
+                   double outlineThickness,
+                   const double fillColor[4],
+                   const double outlineColor[4],
+                   int outlineEnabled,
+                   float posX_px, float posY_px,
+                   int hAnchor, int vAnchor,
+                   double rotation,
+                   float diagramHeightPx);
+
 void renderHandwriting(const RenderContext& ctx,
                        const GlyphSet&      glyphSet,
                        const std::string&   text,

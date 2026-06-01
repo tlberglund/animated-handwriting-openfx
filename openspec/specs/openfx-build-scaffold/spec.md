@@ -16,16 +16,24 @@ The project SHALL fetch the OFX SDK headers automatically via CMake FetchContent
 - **WHEN** the developer runs `cmake -B build` on a fresh clone with no OFX headers present
 - **THEN** CMake fetches the headers and the configure step completes without errors
 
-### Requirement: Plugin implements required OFX entry points
-The plugin source SHALL implement `OfxSetHost`, `OfxGetNumberOfPlugins`, and `OfxGetPlugin` as exported C symbols.
+### Requirement: Bundle exports two OFX plugins
+The `.ofx.bundle` SHALL export two plugins: `HandwritingFX` (the existing text generator) and `HandwrittenDrawingFX` (the new diagram generator). `OfxGetNumberOfPlugins()` SHALL return 2. `OfxGetPlugin(0)` SHALL return the `HandwritingFX` plugin descriptor and `OfxGetPlugin(1)` SHALL return the `HandwrittenDrawingFX` plugin descriptor. Both plugins SHALL appear as separate Generator entries in the host's Effects library.
 
 #### Scenario: Entry points are exported
 - **WHEN** the compiled shared library is inspected with `nm -g` or `objdump --syms`
 - **THEN** `OfxSetHost`, `OfxGetNumberOfPlugins`, and `OfxGetPlugin` appear as exported symbols
 
-#### Scenario: Plugin advertises one effect
+#### Scenario: Plugin advertises two effects
 - **WHEN** the OFX host calls `OfxGetNumberOfPlugins`
-- **THEN** the function returns 1
+- **THEN** the function returns 2
+
+#### Scenario: Both plugins appear in Resolve's Effects library
+- **WHEN** the bundle is installed and Resolve is launched
+- **THEN** both `HandwritingFX` and `HandwrittenDrawingFX` appear as distinct generator entries
+
+#### Scenario: HandwritingFX behavior is unchanged
+- **WHEN** `HandwritingFX` is used after the multi-plugin refactor
+- **THEN** its rendering output and parameter set are bit-for-bit identical to the single-plugin build
 
 ### Requirement: Bundle packaging target produces installable artifact
 The build system SHALL provide a CMake target (`bundle`) that assembles the `.ofx.bundle` directory with the correct macOS bundle layout.

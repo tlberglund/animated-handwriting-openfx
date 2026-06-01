@@ -42,7 +42,10 @@ if(NOT EXISTS "${JSON_INCLUDE_DIR}/nlohmann/json.hpp")
 endif()
 
 add_library(HandwritingFX SHARED
-    src/plugin.cpp
+    src/bundle.cpp
+    src/handwriting_plugin.cpp
+    src/diagram_plugin.cpp
+    src/diagram_loader.cpp
     src/glyph_loader.cpp
     src/renderer.cpp
 )

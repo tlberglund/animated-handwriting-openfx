@@ -13,11 +13,12 @@ static void splatSegment(const RenderContext& ctx,
                           float bx, float by, float bp,
                           float sigmaExtra, bool hardEdge, const double color[4],
                           float originX, float baselineY,
+                          float scaleX, float scaleY,
                           float rotSin, float rotCos,
                           float rotCenterX, float rotCenterY)
 {
-    float pax = originX + ax * ctx.capHeightPx,  pay = baselineY + (1.0f - ay) * ctx.capHeightPx;
-    float pbx = originX + bx * ctx.capHeightPx,  pby = baselineY + (1.0f - by) * ctx.capHeightPx;
+    float pax = originX + ax * scaleX,  pay = baselineY + (1.0f - ay) * scaleY;
+    float pbx = originX + bx * scaleX,  pby = baselineY + (1.0f - by) * scaleY;
 
     // Rotate pixel coords around (rotCenterX, rotCenterY)
     {
@@ -86,10 +87,12 @@ static void splatSegment(const RenderContext& ctx,
     }
 }
 
+// Renders all strokes within a single Capture (used by handwriting path)
 static void splatStrokes(const RenderContext& ctx,
                           const Capture* cap, float tLocal, float glyphPenX,
                           float sigmaExtra, bool hardEdge, const double color[4],
                           float originX, float baselineY,
+                          float scaleX, float scaleY,
                           float rotSin, float rotCos,
                           float rotCenterX, float rotCenterY)
 {
@@ -122,7 +125,7 @@ static void splatStrokes(const RenderContext& ctx,
                          glyphPenX + stroke[i].x,   stroke[i].y,   stroke[i].p,
                          glyphPenX + stroke[i+1].x, stroke[i+1].y, stroke[i+1].p,
                          sigmaExtra, hardEdge, color, originX, baselineY,
-                         rotSin, rotCos, rotCenterX, rotCenterY);
+                         scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
         }
 
         if(hasPartial) {
@@ -130,18 +133,72 @@ static void splatStrokes(const RenderContext& ctx,
                          glyphPenX + stroke[lastVisible].x, stroke[lastVisible].y, stroke[lastVisible].p,
                          glyphPenX + endX, endY, endP,
                          sigmaExtra, hardEdge, color, originX, baselineY,
-                         rotSin, rotCos, rotCenterX, rotCenterY);
+                         scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
         } else if(lastVisible == 0) {
             float ax = glyphPenX + stroke[0].x;
             splatSegment(ctx, ax, stroke[0].y, stroke[0].p, ax, stroke[0].y, stroke[0].p,
                          sigmaExtra, hardEdge, color, originX, baselineY,
-                         rotSin, rotCos, rotCenterX, rotCenterY);
+                         scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
         }
     }
 }
 
+// Renders a single Stroke up to tLocal (used by diagram path)
+static void splatOneStroke(const RenderContext& ctx,
+                            const Stroke& stroke, float tLocal,
+                            float sigmaExtra, bool hardEdge, const double color[4],
+                            float originX, float baselineY,
+                            float scaleX, float scaleY,
+                            float rotSin, float rotCos,
+                            float rotCenterX, float rotCenterY)
+{
+    if(stroke.empty()) return;
+
+    int lastVisible = -1;
+    for(int i = 0; i < (int)stroke.size(); ++i) {
+        if(stroke[i].t <= tLocal) lastVisible = i;
+        else break;
+    }
+    if(lastVisible < 0) return;
+
+    float endX = stroke[lastVisible].x;
+    float endY = stroke[lastVisible].y;
+    float endP = stroke[lastVisible].p;
+    bool hasPartial = (lastVisible + 1 < (int)stroke.size());
+    if(hasPartial) {
+        const auto& a = stroke[lastVisible];
+        const auto& b = stroke[lastVisible + 1];
+        float frac = (b.t > a.t) ? (tLocal - a.t) / (b.t - a.t) : 0.0f;
+        endX = a.x + frac * (b.x - a.x);
+        endY = a.y + frac * (b.y - a.y);
+        endP = a.p + frac * (b.p - a.p);
+    }
+
+    for(int i = 0; i < lastVisible; ++i) {
+        splatSegment(ctx,
+                     stroke[i].x,   stroke[i].y,   stroke[i].p,
+                     stroke[i+1].x, stroke[i+1].y, stroke[i+1].p,
+                     sigmaExtra, hardEdge, color, originX, baselineY,
+                     scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
+    }
+
+    if(hasPartial) {
+        splatSegment(ctx,
+                     stroke[lastVisible].x, stroke[lastVisible].y, stroke[lastVisible].p,
+                     endX, endY, endP,
+                     sigmaExtra, hardEdge, color, originX, baselineY,
+                     scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
+    } else if(lastVisible == 0) {
+        splatSegment(ctx,
+                     stroke[0].x, stroke[0].y, stroke[0].p,
+                     stroke[0].x, stroke[0].y, stroke[0].p,
+                     sigmaExtra, hardEdge, color, originX, baselineY,
+                     scaleX, scaleY, rotSin, rotCos, rotCenterX, rotCenterY);
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Public entry point
+// renderHandwriting
 // ---------------------------------------------------------------------------
 
 void renderHandwriting(const RenderContext& ctx,
@@ -158,28 +215,23 @@ void renderHandwriting(const RenderContext& ctx,
                        double lineSpacing, int textAlignment,
                        double tracking, double rotation)
 {
-    // Precompute rotation
     float rotRad = (float)rotation * (float)M_PI / 180.0f;
     float rotSin = sinf(rotRad);
     float rotCos = cosf(rotRad);
+    float scaleXY = ctx.capHeightPx; // square normalization for glyphs
 
-    // Split text on newlines
     std::vector<std::string> lines;
     {
         size_t start = 0;
         while(true) {
             size_t nl = text.find('\n', start);
-            if(nl == std::string::npos) {
-                lines.push_back(text.substr(start));
-                break;
-            }
+            if(nl == std::string::npos) { lines.push_back(text.substr(start)); break; }
             lines.push_back(text.substr(start, nl - start));
             start = nl + 1;
         }
     }
     int numLines = (int)lines.size();
 
-    // Resolve glyphs for each line; captureIdxVec is indexed globally across lines
     struct ResolvedGlyph { const Capture* capture; float width; };
     struct LineData { std::vector<ResolvedGlyph> glyphs; float lineWidth; };
     std::vector<LineData> perLine;
@@ -190,14 +242,10 @@ void renderHandwriting(const RenderContext& ctx,
         std::vector<ResolvedGlyph> resolved;
         size_t pos = 0;
         while(pos < line.size()) {
-            if(line[pos] == ' ') {
-                resolved.push_back({nullptr, 0.35f});
-                ++pos; continue;
-            }
+            if(line[pos] == ' ') { resolved.push_back({nullptr, 0.35f}); ++pos; continue; }
             bool found = false;
             for(auto& key : glyphSet.ligatureKeys) {
-                if(pos + key.size() <= line.size() &&
-                   line.substr(pos, key.size()) == key) {
+                if(pos + key.size() <= line.size() && line.substr(pos, key.size()) == key) {
                     auto it = glyphSet.glyphs.find(key);
                     if(it != glyphSet.glyphs.end() && !it->second.captures.empty()) {
                         int idx = (selIdx < (int)captureIdxVec.size()) ? captureIdxVec[selIdx] : 0;
@@ -219,50 +267,42 @@ void renderHandwriting(const RenderContext& ctx,
                 ++pos; ++selIdx;
             }
         }
-        // Compute lineWidth using tracking-adjusted advances
         float lineWidth = 0.0f;
         for(auto& rg : resolved) lineWidth += rg.width + (float)tracking;
         perLine.push_back({std::move(resolved), lineWidth});
     }
 
-    // blockWidth = max per-line width; used by hAnchor and textAlignment
     float blockWidth = 0.0f;
     for(auto& ld : perLine) blockWidth = std::max(blockWidth, ld.lineWidth);
 
-    // Block-level horizontal origin (hAnchor uses blockWidth)
     float originX_block;
     switch(hAnchor) {
-        case 0:  originX_block = posX_px; break;                                             // Left
-        case 2:  originX_block = posX_px - blockWidth * ctx.capHeightPx; break;             // Right
-        default: originX_block = posX_px - blockWidth * ctx.capHeightPx * 0.5f; break;      // Center
+        case 0:  originX_block = posX_px; break;
+        case 2:  originX_block = posX_px - blockWidth * scaleXY; break;
+        default: originX_block = posX_px - blockWidth * scaleXY * 0.5f; break;
     }
 
-    // First baseline Y (vAnchor operates on the full block height)
     float lsf = (float)lineSpacing;
     float firstBaselineY;
     switch(vAnchor) {
-        case 0:  firstBaselineY = posY_px - ctx.capHeightPx; break;                                              // Top
-        case 2:  firstBaselineY = posY_px + (numLines - 1) * lsf * ctx.capHeightPx; break;                     // Bottom
-        default: firstBaselineY = posY_px - ctx.capHeightPx * 0.5f                                              // Middle
-                                  + (numLines - 1) * lsf * ctx.capHeightPx * 0.5f; break;
+        case 0:  firstBaselineY = posY_px - scaleXY; break;
+        case 2:  firstBaselineY = posY_px + (numLines - 1) * lsf * scaleXY; break;
+        default: firstBaselineY = posY_px - scaleXY * 0.5f + (numLines - 1) * lsf * scaleXY * 0.5f; break;
     }
 
-    // Build animation sequence with per-glyph origin (varies by line)
     struct GlyphSeq { const Capture* capture; float penX; float seqStart; float originX; float baselineY; };
     std::vector<GlyphSeq> sequence;
     float seqCursor = 0.0f;
 
     for(int li = 0; li < numLines; ++li) {
-        float lineBaselineY = firstBaselineY - li * lsf * ctx.capHeightPx;
+        float lineBaselineY = firstBaselineY - li * lsf * scaleXY;
         float lineWidth = perLine[li].lineWidth;
-
         float lineOriginX;
         switch(textAlignment) {
-            case 1:  lineOriginX = originX_block + (blockWidth - lineWidth) * ctx.capHeightPx * 0.5f; break; // Center
-            case 2:  lineOriginX = originX_block + (blockWidth - lineWidth) * ctx.capHeightPx; break;        // Right
-            default: lineOriginX = originX_block; break;                                                      // Left
+            case 1:  lineOriginX = originX_block + (blockWidth - lineWidth) * scaleXY * 0.5f; break;
+            case 2:  lineOriginX = originX_block + (blockWidth - lineWidth) * scaleXY; break;
+            default: lineOriginX = originX_block; break;
         }
-
         float penX = 0.0f;
         for(auto& rg : perLine[li].glyphs) {
             float dur = rg.capture ? rg.capture->duration : 0.0f;
@@ -272,25 +312,99 @@ void renderHandwriting(const RenderContext& ctx,
         }
     }
 
-    // Outline pass: large hard disc drawn first
     if(outlineEnabled) {
         for(auto& gs : sequence) {
             if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
             float tLocal = (float)(draw_time_ms - gs.seqStart);
             if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
             splatStrokes(ctx, gs.capture, tLocal, gs.penX, (float)outlineThickness, true, outlineColor,
-                         gs.originX, gs.baselineY,
+                         gs.originX, gs.baselineY, scaleXY, scaleXY,
                          rotSin, rotCos, posX_px, posY_px);
         }
     }
 
-    // Fill pass: smaller hard disc composited on top
     for(auto& gs : sequence) {
         if(!gs.capture || draw_time_ms <= (double)gs.seqStart) continue;
         float tLocal = (float)(draw_time_ms - gs.seqStart);
         if(tLocal > gs.capture->duration) tLocal = gs.capture->duration;
         splatStrokes(ctx, gs.capture, tLocal, gs.penX, 0.0f, true, fillColor,
-                     gs.originX, gs.baselineY,
+                     gs.originX, gs.baselineY, scaleXY, scaleXY,
                      rotSin, rotCos, posX_px, posY_px);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// renderDiagram
+// ---------------------------------------------------------------------------
+
+void renderDiagram(const RenderContext& ctx,
+                   const DiagramData&   diagram,
+                   double draw_time_ms,
+                   double outlineThickness,
+                   const double fillColor[4],
+                   const double outlineColor[4],
+                   int outlineEnabled,
+                   float posX_px, float posY_px,
+                   int hAnchor, int vAnchor,
+                   double rotation,
+                   float diagramHeightPx)
+{
+    if(diagram.strokes.empty()) return;
+
+    float rotRad = (float)rotation * (float)M_PI / 180.0f;
+    float rotSin = sinf(rotRad);
+    float rotCos = cosf(rotRad);
+
+    float diagramWidthPx = diagramHeightPx * diagram.aspectRatio;
+    float scaleX = diagramWidthPx;
+    float scaleY = diagramHeightPx;
+
+    // originX = left edge of bounding box
+    float originX;
+    switch(hAnchor) {
+        case 0:  originX = posX_px; break;                             // Left
+        case 2:  originX = posX_px - diagramWidthPx; break;           // Right
+        default: originX = posX_px - diagramWidthPx * 0.5f; break;    // Center
+    }
+
+    // originY = bottom of bounding box (splatSegment uses: pay = originY + (1-y)*scaleY)
+    float originY;
+    switch(vAnchor) {
+        case 0:  originY = posY_px - diagramHeightPx; break;          // Top
+        case 2:  originY = posY_px; break;                             // Bottom
+        default: originY = posY_px - diagramHeightPx * 0.5f; break;   // Middle
+    }
+
+    // Build per-stroke sequence cursors
+    struct StrokeEntry { const Stroke* stroke; float seqStart; float duration; };
+    std::vector<StrokeEntry> sequence;
+    sequence.reserve(diagram.strokes.size());
+    float seqCursor = 0.0f;
+    for(auto& stroke : diagram.strokes) {
+        float dur = stroke.empty() ? 0.0f : stroke.back().t;
+        sequence.push_back({&stroke, seqCursor, dur});
+        seqCursor += dur;
+    }
+
+    if(outlineEnabled) {
+        for(auto& se : sequence) {
+            if(se.stroke->empty() || draw_time_ms <= (double)se.seqStart) continue;
+            float tLocal = (float)(draw_time_ms - se.seqStart);
+            if(tLocal > se.duration) tLocal = se.duration;
+            splatOneStroke(ctx, *se.stroke, tLocal,
+                           (float)outlineThickness, true, outlineColor,
+                           originX, originY, scaleX, scaleY,
+                           rotSin, rotCos, posX_px, posY_px);
+        }
+    }
+
+    for(auto& se : sequence) {
+        if(se.stroke->empty() || draw_time_ms <= (double)se.seqStart) continue;
+        float tLocal = (float)(draw_time_ms - se.seqStart);
+        if(tLocal > se.duration) tLocal = se.duration;
+        splatOneStroke(ctx, *se.stroke, tLocal,
+                       0.0f, true, fillColor,
+                       originX, originY, scaleX, scaleY,
+                       rotSin, rotCos, posX_px, posY_px);
     }
 }

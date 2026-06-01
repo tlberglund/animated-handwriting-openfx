@@ -31,3 +31,15 @@ struct InstanceData {
     std::vector<int> captureIndices;
     std::string lastText;
 };
+
+struct DiagramData {
+    std::string name;
+    float aspectRatio = 1.0f;
+    std::vector<Stroke> strokes;
+    float totalDuration = 0.0f;
+};
+
+struct DiagramInstanceData {
+    DiagramData diagram;
+    std::string loadedPath;
+};

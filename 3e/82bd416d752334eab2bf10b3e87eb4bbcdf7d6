@@ -1,0 +1,47 @@
+src/glyph_model.h
+  s_fdefaebd6e299e::t_8e818e5869dceb 34-45
+src/renderer.cpp
+  s_fdefaebd6e299e::t_c81ad2a5c7260c 16,20-21,90,95,128,136,141,146-199,201,221,228,245,248,280-282,288-290,298,302-304,321,331,335-408
+CMakeLists.txt
+  s_fdefaebd6e299e::t_9044fa312942e5 45-48
+src/bundle.cpp
+  s_fdefaebd6e299e::t_01948bc08de63a 1-19
+openspec/specs/openfx-build-scaffold/spec.md
+  s_fdefaebd6e299e::t_d67d9603a197f1 19-20,26,28-36
+src/handwriting_plugin.cpp
+  s_fdefaebd6e299e::t_d5a600e98c8093 1-497
+  s_fdefaebd6e299e::t_3f0ddce1e1c05b 498
+src/diagram_loader.cpp
+  s_fdefaebd6e299e::t_e4501116dc60f7 1-36
+src/renderer.h
+  s_fdefaebd6e299e::t_2d517c13f16279 17-28
+src/diagram_loader.h
+  s_fdefaebd6e299e::t_2bff71cf062ef6 1-5
+openspec/specs/diagram-rendering/spec.md
+  s_fdefaebd6e299e::t_ab1ba5cddcc86f 1-62
+src/diagram_plugin.cpp
+  s_fdefaebd6e299e::t_60cf9220109e2a 1-258,274-325,327-371
+  s_fdefaebd6e299e::t_e3f9699f477e85 259-273
+  s_fdefaebd6e299e::t_b660d66d64274f 326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3e82bd416d752334eab2bf10b3e87eb4bbcdf7d6",
+  "prompts": {},
+  "humans": {
+    "h_1f5d0d6882e44b": {
+      "author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_fdefaebd6e299e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f9d7f04-19d4-4eaf-bf65-74896919019f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Tim Berglund <tlberglund@gmail.com>"
+    }
+  }
+}
